@@ -7,6 +7,9 @@ import logging
 import os
 import matplotlib.pyplot as plt
 
+# Prometheus client imports
+from prometheus_client import Counter, generate_latest
+
 # Do NOT import pynput here – the modules handle that conditionally.
 # from pynput import keyboard
 
@@ -21,6 +24,10 @@ from voice_detector import VoiceDetector  # Voice detector module.
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.DEBUG)
+
+# Set up Prometheus metrics
+REQUEST_COUNTER = Counter('flask_app_requests_total', 'Total HTTP requests')
+ERROR_COUNTER = Counter('flask_app_errors_total', 'Total HTTP errors')
 
 # Define event callback functions.
 def mouse_event_callback(event):
@@ -63,44 +70,54 @@ def get_status(score):
 # ----- Routes for Pages -----
 @app.route('/')
 def index():
+    REQUEST_COUNTER.inc()  # Increment the request counter
     return render_template('index.html')
 
 @app.route('/risk')
 def risk_page():
+    REQUEST_COUNTER.inc()
     return render_template('risk.html')
 
 @app.route('/copy_test')
 def copy_test():
+    REQUEST_COUNTER.inc()
     return render_template('copy_test.html')
 
 @app.route('/face_detection')
 def face_detection():
+    REQUEST_COUNTER.inc()
     return render_template('face_detection.html')
 
 @app.route('/video_feed')
 def video_feed():
+    REQUEST_COUNTER.inc()
     # Returns the video stream from the face detector.
     return Response(face_detector.gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 # ----- API Endpoints for Events -----
 @app.route('/api/mouse_events')
 def api_mouse_events():
+    REQUEST_COUNTER.inc()
     return jsonify(mouse_tracker.event_log)
 
 @app.route('/api/window_events')
 def api_window_events():
+    REQUEST_COUNTER.inc()
     return jsonify(window_tracker.event_log)
 
 @app.route('/api/copy_events')
 def api_copy_events():
+    REQUEST_COUNTER.inc()
     return jsonify(copy_tracker.event_log)
 
 @app.route('/api/peripheral_events')
 def api_peripheral_events():
+    REQUEST_COUNTER.inc()
     return jsonify(peripheral_detector.event_log)
 
 @app.route('/api/face_risk')
 def api_face_risk():
+    REQUEST_COUNTER.inc()
     # Provide the current face detection risk metrics.
     return jsonify({
         "face_risk": face_detector.eye_risk_score,
@@ -110,6 +127,7 @@ def api_face_risk():
 
 @app.route('/api/risk')
 def api_risk():
+    REQUEST_COUNTER.inc()
     # Aggregate risk values from different trackers.
     mouse_risk = 0  # Mouse tracker does not currently update a risk score.
     window_risk = window_tracker.risk_score if hasattr(window_tracker, 'risk_score') else 0
@@ -119,7 +137,6 @@ def api_risk():
     voice_risk = voice_detector.risk_score if hasattr(voice_detector, 'risk_score') else 0
 
     aggregate = mouse_risk + window_risk + copy_risk + peripheral_risk + face_risk + voice_risk
-
     kickout_flag = True if aggregate >= 1000 else False
 
     return jsonify({
@@ -142,6 +159,7 @@ def api_risk():
 
 @app.route('/api/register_copy', methods=['POST'])
 def register_copy():
+    REQUEST_COUNTER.inc()
     data = request.json
     if data and 'content' in data:
         content = data['content']
@@ -156,10 +174,13 @@ def register_copy():
         copy_tracker.event_log.append(event)
         logging.info("Registered copy event: " + str(event))
         return jsonify({"status": "success"}), 200
-    return jsonify({"status": "error"}), 400
+    else:
+        ERROR_COUNTER.inc()
+        return jsonify({"status": "error"}), 400
 
 @app.route('/api/network_lockdown', methods=['GET'])
 def api_network_lockdown():
+    REQUEST_COUNTER.inc()
     state = request.args.get("state", "").lower()
     if state == "on":
         network_lockdown.activate()
@@ -168,10 +189,12 @@ def api_network_lockdown():
         network_lockdown.deactivate()
         return jsonify({"status": "lockdown deactivated"}), 200
     else:
+        ERROR_COUNTER.inc()
         return jsonify({"status": "invalid state"}), 400
 
 @app.route('/api/shortcuts', methods=['GET'])
 def api_shortcuts():
+    REQUEST_COUNTER.inc()
     state = request.args.get("state", "").lower()
     if state == "disable":
         result = copy_tracker.disable_shortcuts()
@@ -186,15 +209,18 @@ def api_shortcuts():
         else:
             return jsonify({"status": "shortcuts already enabled"}), 200
     else:
+        ERROR_COUNTER.inc()
         return jsonify({"status": "invalid state, use 'disable' or 'enable'"}), 400
 
 @app.route('/api/stop_video', methods=['GET'])
 def stop_video_endpoint():
+    REQUEST_COUNTER.inc()
     face_detector.stop_video()
     return jsonify({"status": "video stream stopped"}), 200
 
 @app.route('/api/test_voice_detection', methods=['POST'])
 def test_voice_detection():
+    REQUEST_COUNTER.inc()
     try:
         has_voice, recording_file = voice_detector.detect_voice()
         return jsonify({
@@ -203,16 +229,19 @@ def test_voice_detection():
         })
     except Exception as e:
         logging.error(f"Error in voice detection API: {str(e)}")
+        ERROR_COUNTER.inc()
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/voice_events')
 def voice_events():
+    REQUEST_COUNTER.inc()
     logging.info("Voice event log: " + str(voice_detector.event_log))
     return jsonify(voice_detector.event_log)
 
 # ----- CSV Export Endpoints -----
 @app.route('/download/mouse_csv')
 def download_mouse_csv():
+    REQUEST_COUNTER.inc()
     si = StringIO()
     cw = csv.writer(si)
     cw.writerow(['timestamp', 'event', 'speed', 'angle_diff', 'position'])
@@ -230,6 +259,7 @@ def download_mouse_csv():
 
 @app.route('/download/window_csv')
 def download_window_csv():
+    REQUEST_COUNTER.inc()
     si = StringIO()
     cw = csv.writer(si)
     cw.writerow(['timestamp', 'window', 'duration'])
@@ -245,6 +275,7 @@ def download_window_csv():
 
 @app.route('/download/copy_csv')
 def download_copy_csv():
+    REQUEST_COUNTER.inc()
     si = StringIO()
     cw = csv.writer(si)
     cw.writerow(['timestamp', 'event', 'content_preview', 'word_count', 'full_content'])
@@ -262,6 +293,7 @@ def download_copy_csv():
 
 @app.route('/download/peripheral_csv')
 def download_peripheral_csv():
+    REQUEST_COUNTER.inc()
     si = StringIO()
     cw = csv.writer(si)
     cw.writerow(['timestamp', 'device'])
@@ -276,6 +308,7 @@ def download_peripheral_csv():
 
 @app.route('/download/face_csv')
 def download_face_csv():
+    REQUEST_COUNTER.inc()
     si = StringIO()
     cw = csv.writer(si)
     cw.writerow(['timestamp', 'event', 'risk', 'details'])
@@ -296,6 +329,7 @@ def download_face_csv():
 
 @app.route('/download/voice_csv')
 def download_voice_csv():
+    REQUEST_COUNTER.inc()
     si = StringIO()
     cw = csv.writer(si)
     cw.writerow(['timestamp', 'event', 'duration', 'risk_score', 'recording_file'])
@@ -313,6 +347,7 @@ def download_voice_csv():
 
 @app.route('/download/graph_csv')
 def download_graph_csv():
+    REQUEST_COUNTER.inc()
     data = []
     for event in face_detector.eye_risk_events:
         data.append({
@@ -339,6 +374,7 @@ def download_graph_csv():
 # ----- Graph Endpoints using Matplotlib -----
 @app.route('/graph/<event_type>')
 def graph_event(event_type):
+    REQUEST_COUNTER.inc()
     if event_type == 'mouse':
         events = mouse_tracker.event_log
     elif event_type == 'window':
@@ -352,6 +388,7 @@ def graph_event(event_type):
     elif event_type == 'voice':
         events = voice_detector.event_log
     else:
+        ERROR_COUNTER.inc()
         return "Invalid event type", 400
 
     times = []
@@ -364,6 +401,7 @@ def graph_event(event_type):
             val = event.get('risk', 1)
             values.append(val)
     if not times:
+        ERROR_COUNTER.inc()
         return "No data available", 404
 
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -383,6 +421,7 @@ def graph_event(event_type):
 # ----- Kickout Route -----
 @app.route('/kickout')
 def kickout():
+    REQUEST_COUNTER.inc()
     return """
     <!DOCTYPE html>
     <html lang="en">
@@ -400,6 +439,12 @@ def kickout():
     </body>
     </html>
     """
+
+# ----- Prometheus Metrics Endpoint -----
+@app.route('/metrics')
+def metrics():
+    # Expose Prometheus metrics.
+    return Response(generate_latest(), mimetype='text/plain')
 
 # ----- Main Execution -----
 if __name__ == '__main__':

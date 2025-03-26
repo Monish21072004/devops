@@ -1,11 +1,13 @@
 Flask==2.2.2
+Werkzeug==2.2.2
 pyperclip==1.8.2
 pynput==1.7.6
 opencv-python==4.7.0.72
 torch==1.13.1
 facenet-pytorch==2.5.2
 numpy==1.26.0
-tensorflow==2.19.0
+tensorflow-cpu==2.19.0
 pyaudio==0.2.13
 matplotlib==3.6.2
-Werkzeug==2.2.2
+pyperclip==1.8.2
+prometheus_client==0.16.0
